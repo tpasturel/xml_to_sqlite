@@ -8,9 +8,10 @@ import re, itertools, sys
 
 therapeutic_moiety_input = "/home/tpasturel/Desktop/PythonScripts/CCDD/Therapeutic_Moiety_20211012.xml"
 non_proprietary_therapeutic_product = "/home/tpasturel/Desktop/PythonScripts/CCDD/Non_Proprietary_Therapeutic_Product_20211012.xml"
+manufactured_product = "/home/tpasturel/Desktop/PythonScripts/CCDD/Manufactured_Product_MP_20211105.xml"
 sqlite_dbfile = "/home/tpasturel/Desktop/PythonScripts/CCDD/ccdd"
 
-# Create the sqlite DB and tables
+# Creating the sqlite DB and tables
 conn = sqlite3.connect('ccdd.db')
 cur = conn.cursor()
 
@@ -35,8 +36,18 @@ _ntp = "CREATE TABLE IF NOT EXISTS non_proprietary_therapeutic_product (\
      description TEXT,\
      active INTEGER)"
 
+_mp = "CREATE TABLE IF NOT EXISTS manufactured_product (\
+     id INTEGER PRIMARY KEY,\
+     name TEXT,\
+     code_system_id TEXT,\
+     code_system_name TEXT,\
+     display_name_en TEXT,\
+     display_name_fr TEXT,\
+     description TEXT,\
+     active INTEGER)"
+
 def create_ccdd_tables():
-    create_tables = [ _tm , _ntp ]
+    create_tables = [ _tm , _ntp, _mp ]
     for table in create_tables:
         try:
             cur.execute(table)
@@ -44,7 +55,7 @@ def create_ccdd_tables():
             pass
         conn.commit()
 
-# Parse the xml input files to set all rows to lists
+# Parsing the xml input files and setting all rows to lists
 def get_tm_rows():
     tm_tree = ET.parse(therapeutic_moiety_input)
     tm_root = tm_tree.getroot()
@@ -89,16 +100,40 @@ def get_nptp_rows():
         ntpt_rows.append(row)
     return ntpt_rows
 
-# Populate the sqlite DB
-def insert_into_sqlite():
-    print("Populating ccdd sqlite db...\n")
-    try:
+def get_mp_rows():
+    mp_tree = ET.parse(manufactured_product)
+    mp_root = mp_tree.getroot()
+    mp_tags = []
+    mp_rows = []
+    for value in mp_root.findall('./concepts/concept/'):
+        mp_tags.append(value.tag)
+    for each in mp_root.findall('.//concept'):
+        row = []
+        for x in range (0, 8):
+            try:
+                value = each.find('.//%s' %mp_tags[x])
+                row.append(value.text)
+            except AttributeError:
+                row.append('None')    
+        mp_rows.append(row)
+    return mp_rows
+    
+
+# Populating the sqlite DB
+def sql_insert_statements():
         tm_sql_statement = 'INSERT INTO therapeutic_moiety VALUES (?,?,?,?,?,?,?,?,?);'
         cur.executemany(tm_sql_statement, get_tm_rows())
         ntpt_sql_statement = 'INSERT INTO non_proprietary_therapeutic_product VALUES (?,?,?,?,?,?,?,?);'
         cur.executemany(ntpt_sql_statement, get_nptp_rows())
+        mp_sql_statement = 'INSERT INTO manufactured_product VALUES (?,?,?,?,?,?,?,?);'
+        cur.executemany(mp_sql_statement, get_mp_rows())
         conn.commit()
         conn.close()
+  
+def insert_into_sqlite():
+    print("Populating ccdd sqlite db...\n")
+    try:
+        sql_insert_statements()
     except sqlite3.IntegrityError:
         print("The ccdd sqliteDB already exists and some tables where already populated with this data")
     finally: 
@@ -106,13 +141,9 @@ def insert_into_sqlite():
         if next_step == 'y':
             cur.execute('''DROP TABLE therapeutic_moiety''')
             cur.execute('''DROP TABLE non_proprietary_therapeutic_product''')
+            cur.execute('''DROP TABLE manufactured_product''')
             create_ccdd_tables()
-            tm_sql_statement = 'INSERT INTO therapeutic_moiety VALUES (?,?,?,?,?,?,?,?,?);'
-            cur.executemany(tm_sql_statement, get_tm_rows())
-            ntpt_sql_statement = 'INSERT INTO non_proprietary_therapeutic_product VALUES (?,?,?,?,?,?,?,?);'
-            cur.executemany(ntpt_sql_statement, get_nptp_rows())
-            conn.commit()
-            conn.close()
+            sql_insert_statements()
         else:
             print('Not importing the data. Exiting...')
 
